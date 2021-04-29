@@ -144,12 +144,11 @@ bool for_matched_readers(
 
 static bool add_change_to_rtps_group(
         RTPSMessageGroup& group,
-        ChangeForReader_t* reader_change,
+        CacheChange_t* change,
         bool inline_qos)
 {
     try
     {
-        CacheChange_t* change = reader_change->getChange();
         uint32_t n_fragments = change->getFragmentCount();
         if (n_fragments > 0)
         {
@@ -390,6 +389,8 @@ void StatelessWriter::unsent_change_added_to_history(
     {
         if (!isAsync())
         {
+            bool has_been_sent = false;
+
             try
             {
                 if (m_separateSendingEnabled)
@@ -402,25 +403,10 @@ void StatelessWriter::unsent_change_added_to_history(
                     for (std::unique_ptr<ReaderLocator>& it : matched_remote_readers_)
                     {
                         RTPSMessageGroup group(mp_RTPSParticipant, this, *it, max_blocking_time);
-
-                        uint32_t n_fragments = change->getFragmentCount();
-                        if (n_fragments > 0)
+                        has_been_sent |= add_change_to_rtps_group(group, change, is_inline_qos_expected_);
+                        if (!has_been_sent)
                         {
-                            for (uint32_t frag = 1; frag <= n_fragments; frag++)
-                            {
-                                if (!group.add_data_frag(*change, frag, is_inline_qos_expected_))
-                                {
-                                    logError(RTPS_WRITER, "Error sending fragment (" << change->sequenceNumber <<
-                                            ", " << frag << ")");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (!group.add_data(*change, is_inline_qos_expected_))
-                            {
-                                logError(RTPS_WRITER, "Error sending change " << change->sequenceNumber);
-                            }
+                            break;
                         }
                     }
                 }
@@ -428,36 +414,17 @@ void StatelessWriter::unsent_change_added_to_history(
                 {
                     for (std::unique_ptr<ReaderLocator>& it : matched_local_readers_)
                     {
-                        intraprocess_delivery(change, *it);
+                        has_been_sent |= intraprocess_delivery(change, *it);
                     }
 
                     if (there_are_remote_readers_ || !fixed_locators_.empty())
                     {
                         RTPSMessageGroup group(mp_RTPSParticipant, this, *this, max_blocking_time);
-
-                        uint32_t n_fragments = change->getFragmentCount();
-                        if (n_fragments > 0)
-                        {
-                            for (uint32_t frag = 1; frag <= n_fragments; frag++)
-                            {
-                                if (!group.add_data_frag(*change, frag, is_inline_qos_expected_))
-                                {
-                                    logError(RTPS_WRITER, "Error sending fragment (" << change->sequenceNumber <<
-                                            ", " << frag << ")");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (!group.add_data(*change, is_inline_qos_expected_))
-                            {
-                                logError(RTPS_WRITER, "Error sending change " << change->sequenceNumber);
-                            }
-                        }
+                        has_been_sent |= add_change_to_rtps_group(group, change, is_inline_qos_expected_);
                     }
                 }
 
-                if (mp_listener != nullptr)
+                if (has_been_sent && mp_listener != nullptr)
                 {
                     mp_listener->onWriterChangeReceivedByAll(this, change);
                 }
@@ -693,7 +660,7 @@ void StatelessWriter::send_all_unsent_changes()
 
         if (remote_destinations)
         {
-            if (!add_change_to_rtps_group(group, &unsentChange, is_inline_qos_expected_))
+            if (!add_change_to_rtps_group(group, unsentChange.getChange(), is_inline_qos_expected_))
             {
                 break;
             }
