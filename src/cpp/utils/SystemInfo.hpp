@@ -109,6 +109,30 @@ public:
         return ReturnCode_t::RETCODE_OK;
     }
 
+    /**
+     * Get the user name the user used at login
+     * The c-string which is returned is only valid until the next time this function is called, because it is a direct
+     * pointer to the static storage.
+     * Modifying the string invokes undefined behavior.
+     * 
+     * This function is thread-safe as long as no other function modifies the utmp file (in particular, POSIX functions
+     * setutent, getutent or endutent would introduce a data race if called without synchronization.)
+     * 
+     * \param [out] username pointer to the value c-string.
+     * @return RETCODE_OK if successful.
+     * RETCODE_ERROR if the username information cannot be determined.
+     */
+    static ReturnCode_t get_username(
+            std::string& username)
+    {
+        username = getlogin();
+        if (username.empty())
+        {
+            return ReturnCode_t::RETCODE_ERROR;
+        }
+        return ReturnCode_t::RETCODE_OK;
+    }
+
 private:
 
     SystemInfo() = default;
